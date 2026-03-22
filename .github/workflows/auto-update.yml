@@ -1,0 +1,55 @@
+name: ToolScout Auto-Update
+
+on:
+  schedule:
+    # Run every 6 hours
+    - cron: '0 */6 * * *'
+  # Also allow manual trigger from GitHub UI
+  workflow_dispatch:
+
+jobs:
+  update-tools:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run tool scraper
+        env:
+          MONGO_URI: ${{ secrets.MONGO_URI }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          PRODUCTHUNT_TOKEN: ${{ secrets.PRODUCTHUNT_TOKEN }}
+          NODE_ENV: production
+        run: node -e "
+          require('dotenv').config();
+          const mongoose = require('mongoose');
+          const { scrapeAndUpdateTools } = require('./services/toolScraper');
+          const { fetchAndUpdateNews } = require('./services/newsUpdater');
+
+          mongoose.connect(process.env.MONGO_URI)
+            .then(async () => {
+              console.log('Connected to MongoDB');
+              await scrapeAndUpdateTools();
+              await fetchAndUpdateNews();
+              console.log('All done!');
+              process.exit(0);
+            })
+            .catch(err => {
+              console.error('Error:', err);
+              process.exit(1);
+            });
+        "
+
+      - name: Log completion
+        run: echo "Auto-update completed at $(date)"
